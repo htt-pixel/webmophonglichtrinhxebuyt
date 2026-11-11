@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#14243c">
+  <title>BUSROUTE — Tra cứu xe buýt</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="#" aria-label="BUSROUTE trang chủ">
+      <span class="brand-icon">B</span>
+      <span>BUS<span>ROUTE</span><small>SMART TRANSIT SYSTEM</small></span>
+    </a>
+    <div class="side-label">KHÔNG GIAN LÀM VIỆC</div>
+    <button class="nav-item active" data-tab="map"><span>⌖</span> Bản đồ & tìm đường</button>
+    <button class="nav-item" data-tab="routes"><span>⇄</span> Danh sách tuyến</button>
+    <button class="nav-item" data-tab="schedule"><span>◷</span> Lịch trình xe</button>
+    <div class="sidebar-bottom">
+      <span class="status-dot"></span>
+      <div><b>Hệ thống hoạt động</b><small>Dữ liệu mô phỏng BUSROUTE</small></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">HỆ THỐNG GIAO THÔNG CÔNG CỘNG</div>
+        <h1 id="pageTitle">Tra cứu hành trình</h1>
+      </div>
+      <div class="top-right">
+        <span class="live-pill"><i></i> SYSTEM ONLINE</span>
+        <div class="avatar">BR</div>
+      </div>
+    </header>
+
+    <section class="stats">
+      <article class="stat-card"><span class="stat-icon blue">⌖</span><div><small>TỔNG SỐ TRẠM</small><strong id="stationCount">25</strong><em>Điểm dừng trong hệ thống</em></div></article>
+      <article class="stat-card"><span class="stat-icon teal">⇄</span><div><small>TUYẾN XE BUÝT</small><strong id="routeCount">8</strong><em>Các tuyến đang quản lý</em></div></article>
+      <article class="stat-card"><span class="stat-icon orange">◷</span><div><small>CHUYẾN MỖI TUYẾN</small><strong>24</strong><em>Hai chiều · lịch mô phỏng</em></div></article>
+    </section>
+
+    <div id="mapView">
+      <section class="workspace">
+        <div class="map-panel">
+          <div class="panel-heading">
+            <div><h2>Bản đồ mạng lưới</h2><p>Khám phá các điểm dừng và kết nối tuyến xe</p></div>
+            <button id="resetMap" class="icon-btn" title="Đưa bản đồ về toàn cảnh">⤢</button>
+          </div>
+          <div id="map" aria-label="Bản đồ các trạm xe buýt"></div>
+          <div class="map-legend">
+            <span><i class="legend-dot"></i> Trạm xe buýt</span>
+            <span><i class="legend-line"></i> Tuyến kết nối</span>
+            <span class="map-note">Nền bản đồ © OpenStreetMap</span>
+          </div>
+        </div>
+
+        <div class="right-column">
+          <section class="panel search-panel">
+            <div class="panel-heading">
+              <div><h2>Tìm hành trình</h2><p>Chọn điểm đi và điểm đến của bạn</p></div>
+              <span class="round-icon">⌕</span>
+            </div>
+            <label for="start">ĐIỂM KHỞI HÀNH</label>
+            <select id="start"><option value="">Chọn trạm bắt đầu</option></select>
+            <div class="swap-row"><span class="route-connector"></span><button id="swap" class="swap-btn" title="Đổi điểm đi và đến">⇅</button></div>
+            <label for="end">ĐIỂM ĐẾN</label>
+            <select id="end"><option value="">Chọn trạm kết thúc</option></select>
+            <label>TIÊU CHÍ TÌM ĐƯỜNG</label>
+            <div class="method-options">
+              <label class="method"><input type="radio" name="method" value="bfs" checked><span><b>Ít chặng nhất</b><small>BFS · ưu tiên số cạnh</small></span></label>
+              <label class="method"><input type="radio" name="method" value="dijkstra"><span><b>Ít thời gian nhất</b><small>Dijkstra · tổng phút di chuyển</small></span></label>
+            </div>
+            <button id="searchBtn" class="primary-btn">Tìm đường đi <span>→</span></button>
+            <div id="searchError" class="error" role="alert"></div>
+          </section>
+          <section class="panel result-panel" id="resultPanel">
+            <div class="empty-state"><div class="empty-icon">⌖</div><b>Hành trình của bạn</b><p>Kết quả tìm đường sẽ hiển thị tại đây sau khi bạn chọn trạm.</p></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="panel lower-panel" id="routesView">
+        <div class="panel-heading"><div><h2>Danh sách tuyến xe</h2><p>Các tuyến được khai báo trong dữ liệu dự án</p></div><span class="subtle" id="routeCaption">8 tuyến</span></div>
+        <div class="route-grid" id="routeList"></div>
+      </section>
+    </div>
+
+    <section id="scheduleView" class="schedule-view" hidden>
+      <div class="schedule-intro"><div><div class="eyebrow">BUSROUTE · TRA CỨU THỜI GIAN</div><h2>Quản lý lịch trình xe buýt</h2><p>Tra cứu giờ xe đến trạm, xem lịch trình từng tuyến và tìm chuyến theo thời gian.</p></div></div>
+      <div class="schedule-grid">
+        <section class="panel schedule-card">
+          <div class="panel-heading"><div><h2>1. Giờ xe tại trạm</h2><p>Xem các chuyến đi qua một trạm</p></div><span class="round-icon">⌖</span></div>
+          <div class="schedule-form"><label for="arrivalStation">CHỌN TRẠM XE</label><select id="arrivalStation"><option value="">Chọn trạm cần tra cứu</option></select><button id="arrivalBtn" class="primary-btn">Tra cứu giờ xe <span>→</span></button></div>
+          <div id="arrivalResults" class="schedule-results"><div class="empty-state"><div class="empty-icon">◷</div><b>Chưa có dữ liệu</b><p>Chọn một trạm để xem giờ xe dự kiến đến.</p></div></div>
+        </section>
+        <section class="panel schedule-card">
+          <div class="panel-heading"><div><h2>2. Lịch trình tuyến xe</h2><p>Xem giờ đi và giờ đến từng trạm</p></div><span class="round-icon">▤</span></div>
+          <div class="schedule-form"><label for="scheduleRoute">CHỌN TUYẾN XE</label><select id="scheduleRoute"><option value="">Chọn tuyến xe</option></select><label for="scheduleDirection">HƯỚNG DI CHUYỂN</label><select id="scheduleDirection"><option value="Di">Chiều đi</option><option value="Ve">Chiều về</option></select><button id="scheduleBtn" class="primary-btn">Xem lịch trình <span>→</span></button></div>
+          <div id="scheduleResults" class="schedule-results"><div class="empty-state"><div class="empty-icon">▤</div><b>Chưa chọn tuyến</b><p>Chọn tuyến và hướng di chuyển để xem lịch trình.</p></div></div>
+        </section>
+        <section class="panel schedule-card schedule-card-wide">
+          <div class="panel-heading"><div><h2>3. Tìm chuyến theo thời gian</h2><p>Tìm chuyến xe trực tiếp phù hợp với giờ khởi hành mong muốn</p></div><span class="round-icon">◷</span></div>
+          <div class="schedule-form schedule-form-inline">
+            <div><label for="tripStart">TRẠM KHỞI HÀNH</label><select id="tripStart"><option value="">Chọn trạm đi</option></select></div>
+            <div><label for="tripEnd">TRẠM ĐẾN</label><select id="tripEnd"><option value="">Chọn trạm đến</option></select></div>
+            <div><label for="tripTime">GIỜ MUỐN KHỞI HÀNH</label><input id="tripTime" type="time" value="05:00"></div>
+          </div>
+          <button id="tripBtn" class="primary-btn schedule-submit">Tìm chuyến xe <span>→</span></button>
+          <div id="tripResults" class="schedule-results"><div class="empty-state"><div class="empty-icon">◷</div><b>Chưa tìm chuyến</b><p>Chọn trạm đi, trạm đến và giờ khởi hành.</p></div></div>
+        </section>
+      </div>
+    </section>
+    <footer>BUSROUTE <span>·</span> Đồ án Cấu trúc dữ liệu & Giải thuật <span>·</span> HTML · CSS · JavaScript</footer>
+  </main>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

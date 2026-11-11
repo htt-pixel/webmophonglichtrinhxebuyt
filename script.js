@@ -431,6 +431,11 @@ async function roadGeometry(ids) {
       "?overview=full&geometries=geojson&steps=false";
 
     const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error("Không thể kết nối OSRM.");
+    }
+
     const data = await response.json();
 
     if (
@@ -450,23 +455,21 @@ async function roadGeometry(ids) {
     );
   }
 
-  // Dự phòng nếu OSRM không hoạt động
   return stationLatLngs(ids);
 }
 
 
 // ========================================
 // VẼ TOÀN BỘ MẠNG LƯỚI TUYẾN
-// ĐÂY LÀ PHẦN ĐÃ SỬA
 // ========================================
 
 async function drawNetwork() {
-
   for (let i = 0; i < ROUTES.length; i++) {
     const route = ROUTES[i];
 
-    // Lấy hình dạng đường thực tế theo từng tuyến
     const path = await roadGeometry(route.stations);
+
+    if (path.length < 2) continue;
 
     const line = L.polyline(path, {
       color: palette[i % palette.length],
@@ -539,7 +542,7 @@ function renderRoutes() {
 
 
 // ========================================
-// TÌM ĐƯỜNG VÀ HIỂN THỊ KẾT QUẢ
+// XÓA HÀNH TRÌNH CŨ
 // ========================================
 
 function clearActive() {
@@ -550,8 +553,14 @@ function clearActive() {
 
   Object.values(stationMarkers).forEach(marker => {
     marker.setIcon(markerIcon(false));
+    marker.setZIndexOffset(0);
   });
 }
+
+
+// ========================================
+// HIỂN THỊ TRẠNG THÁI TRỐNG
+// ========================================
 
 function emptyState(icon,title,description) {
   return `
@@ -562,6 +571,31 @@ function emptyState(icon,title,description) {
     </div>
   `;
 }
+
+
+// ========================================
+// GỘP CÁC TUYẾN LIÊN TIẾP GIỐNG NHAU
+// ========================================
+
+function groupRoutes(routes) {
+  const result = [];
+
+  routes.forEach(route => {
+    if (
+      result.length === 0 ||
+      result[result.length - 1] !== route
+    ) {
+      result.push(route);
+    }
+  });
+
+  return result;
+}
+
+
+// ========================================
+// TÌM ĐƯỜNG VÀ HIỂN THỊ KẾT QUẢ
+// ========================================
 
 async function searchRoute() {
   $("searchError").textContent = "";
@@ -601,31 +635,87 @@ async function searchRoute() {
 
     clearActive();
 
+    // Đánh dấu các trạm trên hành trình
     result.stations.forEach(id => {
-      stationMarkers[id]?.setIcon(markerIcon(true));
+      const marker = stationMarkers[id];
+
+      if (marker) {
+        marker.setIcon(markerIcon(true));
+        marker.setZIndexOffset(1000);
+      }
     });
 
     // Lấy đường thực tế cho hành trình tìm được
     const path = await roadGeometry(result.stations);
 
-    activeLine = L.polyline(path, {
-      color: "#ff8b35",
-      weight: 7,
-      opacity: 0.98
-    }).addTo(map);
+    if (path.length >= 2) {
+      activeLine = L.polyline(path, {
+        color: "#ff8b35",
+        weight: 7,
+        opacity: 0.98
+      }).addTo(map);
 
-    activeLine.bringToFront();
+      // Đưa đường hành trình lên trên các đường nền
+      activeLine.bringToFront();
+    }
 
+    // Đưa các Marker lên lớp hiển thị ưu tiên
     result.stations.forEach(id => {
-      stationMarkers[id]?.bringToFront();
+      const marker = stationMarkers[id];
+
+      if (marker) {
+        marker.setZIndexOffset(1000);
+      }
     });
 
-    map.fitBounds(activeLine.getBounds().pad(0.22));
+    // Phóng bản đồ đến khu vực hành trình
+    if (activeLine) {
+      map.fitBounds(activeLine.getBounds().pad(0.22));
+    } else {
+      map.fitBounds(
+        L.latLngBounds(
+          stationLatLngs(result.stations)
+        ).pad(0.22)
+      );
+    }
 
     const points = result.stations.map(
       id => stationById[id]
     );
 
+    // Gộp các tuyến liên tiếp giống nhau
+    const routeSequence = groupRoutes(result.routes);
+
+    // Số tuyến xe thực tế sử dụng
+    const routeCount = new Set(result.routes).size;
+
+    // Số lần phải đổi xe
+    const transferCount = Math.max(0,routeSequence.length - 1);
+
+    // Tạo danh sách trạm và thông tin đổi tuyến
+    const pathHTML = points.map((s,i) => {
+      let description = "";
+
+      if (i === 0) {
+        description = "Điểm đi";
+      } else if (i === points.length - 1) {
+        description = "Điểm đến";
+      } else if (result.routes[i - 1] !== result.routes[i]) {
+        description = `Trạm trung chuyển · Đổi sang ${result.routes[i]}`;
+      } else {
+        description = `Tiếp tục ${result.routes[i]}`;
+      }
+
+      return `
+        <div class="path-stop">
+          <i></i>
+          <span>${s.id} — ${s.name}</span>
+          <small>${description}</small>
+        </div>
+      `;
+    }).join("");
+
+    // Hiển thị kết quả
     $("resultPanel").innerHTML = `
       <div class="result-head">
         <b>✓ Đã tìm thấy hành trình</b>
@@ -633,7 +723,7 @@ async function searchRoute() {
           ${method === "bfs"
             ? "BFS · Ít chặng nhất"
             : "Dijkstra · Ít thời gian nhất"}
-          · ${result.routes.join(" → ")}
+          · ${routeSequence.join(" → ")}
         </small>
       </div>
 
@@ -642,34 +732,32 @@ async function searchRoute() {
           <strong>${result.stations.length - 1}</strong>
           <small>Chặng di chuyển</small>
         </div>
+
         <div>
           <strong>${result.total_time} phút</strong>
           <small>Thời gian mô phỏng</small>
         </div>
+
         <div>
-          <strong>${new Set(result.routes).size}</strong>
+          <strong>${routeCount}</strong>
           <small>Tuyến sử dụng</small>
         </div>
       </div>
 
       <div class="path-list">
-        ${points.map((s,i) => `
-          <div class="path-stop">
-            <i></i>
-            <span>${s.id} — ${s.name}</span>
-            <small>
-              ${i === 0
-                ? "Điểm đi"
-                : i === points.length - 1
-                  ? "Điểm đến"
-                  : "Trạm trung chuyển"}
-            </small>
-          </div>
-        `).join("")}
+        ${pathHTML}
+      </div>
+
+      <div class="result-head">
+        <small>
+          Sử dụng ${routeCount} tuyến xe ·
+          Đổi tuyến ${transferCount} lần
+        </small>
       </div>
     `;
 
   } catch (error) {
+    console.error("Lỗi tìm hành trình:",error);
     $("searchError").textContent = error.message;
 
   } finally {
@@ -947,7 +1035,6 @@ async function boot() {
 
   drawStations();
 
-  // Vẽ từng tuyến theo mạng lưới đường OSRM
   await drawNetwork();
 
   $("resetMap").click();
